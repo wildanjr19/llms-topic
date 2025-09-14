@@ -45,3 +45,24 @@ class RotaryEmbedding(nn.Module):
         # register buffer cos sin
         self.register_buffer("cos_cached", torch.empty(1, 0, 1, dim), persistent=False)
         self.register_buffer("sin_cached", torch.empty(1, 0, 1, dim), persistent=False)
+
+    @torch.no_grad()
+    def build_cache(self, seq_len: int, device, dtype):
+        """
+        Bangun cache cos/sin dengan ukuran [1, seq_len, 1, rotary_dim]
+        agar memudahkan  bisa broadcast ke [BH, seq_len, num_head, rotary_dim]
+        """
+        # [seq_len]
+        t = torch.arange(seq_len, device=device, dtype=self.inv_freq.dtype)
+        # outer product -> [seq_len, dim/2]
+        freqs = torch.einsum("i, j -> ij", t, self.inv_freq)
+        # concat freq dengan dirinya sendiri pada shape -1 (terakhir)
+        emb = torch.cat((freqs, freqs), dim=-1)
+
+        # buat cos sin dengan ukuran [1, seq_len, 1, dim]
+        cos = emb.cos().to(dtype).unsqueeze(0).unsqueeze(2)
+        sin = emb.sin().to(dtype).unsqueeze(0).unsqueeze(2)
+
+        # simpan ke cache yang sudah di register
+        self.cos_cached = cos
+        self.sin_cached = sin
